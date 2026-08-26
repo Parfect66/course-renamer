@@ -16,8 +16,10 @@ renamed by hand.
 
 Point the app at a course folder. It:
 
-1. Finds the single `.gspcrse` file in the folder - its filename (without
-   the extension) is treated as the correct/target course name.
+1. Finds the `.gspcrse` file in the folder - its filename (without the
+   extension) is treated as the correct/target course name. If there are
+   two (e.g. the original export plus a renamed copy), you're prompted to
+   pick which one is correct before continuing; the other is left alone.
 2. Finds the single `.GKD` file - its filename is treated as the current
    (old) name.
 3. Renames the `.GKD` file to the target name.
@@ -33,7 +35,11 @@ Point the app at a course folder. It:
 
 It always shows a preview of exactly what it's about to do (via **Scan**)
 before you confirm with **Rename**. Nothing is changed until you click
-**Rename**.
+**Rename**, and even then the whole folder is zipped to a backup archive
+right beside it *before* anything is renamed. If the rename completes
+successfully you're asked whether to delete that backup; if anything goes
+wrong partway through, the backup is kept automatically and its path is
+shown so you can restore from it by hand.
 
 Files that don't carry the course name in their filename - `arboristdata.dat`,
 `arboristspawnpositions.json`, `arboristversion.dat`,

@@ -11,6 +11,7 @@ import re
 import shutil
 import tkinter as tk
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -34,6 +35,8 @@ class RenamePlan:
     scene_folder_name_update: tuple = None  # (old_value, new_value) or None
     warnings: list = field(default_factory=list)
     errors: list = field(default_factory=list)
+    needs_selection: bool = False
+    gspcrse_candidates: list = field(default_factory=list)  # list of Path, when ambiguous
 
     @property
     def is_valid(self):
@@ -52,14 +55,16 @@ def _find_by_suffix(folder: Path, suffix: str, exclude: set):
     return matches
 
 
-def scan_folder(folder: Path) -> RenamePlan:
+def scan_folder(folder: Path, chosen_gspcrse: Path = None) -> RenamePlan:
     plan = RenamePlan(folder=folder)
 
     if not folder.is_dir():
         plan.errors.append(f"Not a folder: {folder}")
         return plan
 
-    # 1. Find the single .gspcrse file - its name is the target course name.
+    # 1. Find the .gspcrse file - its name is the target course name.
+    # There can legitimately be two (e.g. the original export plus a
+    # renamed copy) - if so, the caller must tell us which one is correct.
     gspcrse_matches = [
         p for p in folder.iterdir()
         if p.is_file() and p.name.lower().endswith(".gspcrse")
@@ -67,14 +72,26 @@ def scan_folder(folder: Path) -> RenamePlan:
     if not gspcrse_matches:
         plan.errors.append("No .gspcrse file found in this folder.")
         return plan
-    if len(gspcrse_matches) > 1:
-        names = ", ".join(p.name for p in gspcrse_matches)
-        plan.errors.append(f"Multiple .gspcrse files found (expected exactly one): {names}")
-        return plan
 
-    gspcrse_path = gspcrse_matches[0]
+    if len(gspcrse_matches) > 1:
+        if chosen_gspcrse is None:
+            plan.needs_selection = True
+            plan.gspcrse_candidates = sorted(gspcrse_matches, key=lambda p: p.name.lower())
+            return plan
+        if chosen_gspcrse not in gspcrse_matches:
+            plan.errors.append(f"Selected file is no longer in the folder: {chosen_gspcrse.name}")
+            return plan
+        gspcrse_path = chosen_gspcrse
+    else:
+        gspcrse_path = gspcrse_matches[0]
+
     new_name = gspcrse_path.stem  # strips ".gspcrse"
     plan.new_name = new_name
+
+    other_gspcrse = [p for p in gspcrse_matches if p != gspcrse_path]
+    if other_gspcrse:
+        names = ", ".join(p.name for p in other_gspcrse)
+        plan.warnings.append(f"Other .gspcrse file(s) present and left untouched: {names}")
 
     # 2. Find the single .GKD file - its name is the current (old) course name.
     gkd_matches = [
@@ -165,6 +182,17 @@ def scan_folder(folder: Path) -> RenamePlan:
     return plan
 
 
+def backup_folder(folder: Path, base_name: str, log) -> Path:
+    """Zips the whole course folder into a sibling archive before any
+    renaming happens, so the operation can be undone by hand if needed."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_stem = folder.parent / f"{base_name}_backup_{timestamp}"
+    log(f"Backing up {folder.name} ...")
+    archive_path = Path(shutil.make_archive(str(backup_stem), "zip", root_dir=str(folder.parent), base_dir=folder.name))
+    log(f"Backup saved: {archive_path}")
+    return archive_path
+
+
 def execute_plan(plan: RenamePlan, log) -> bool:
     """Executes a validated RenamePlan. Returns True on full success."""
     if not plan.is_valid:
@@ -205,6 +233,62 @@ def execute_plan(plan: RenamePlan, log) -> bool:
     except OSError as exc:
         log(f"ERROR during rename: {exc}")
         return False
+
+
+class GspcrseChoiceDialog(tk.Toplevel):
+    """Modal dialog letting the user pick which .gspcrse file is correct
+    when more than one is present (e.g. the original export plus a
+    renamed copy)."""
+
+    def __init__(self, parent, candidates: list):
+        super().__init__(parent)
+        self.title("Select the correct course file")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        self.candidates = candidates
+        self.result: Path = None
+
+        ttk.Label(
+            self,
+            text="Multiple .gspcrse files were found. Select the one with\n"
+                 "the correct course name - it will be used as the target\n"
+                 "name for all the other files.",
+            justify="left",
+        ).pack(padx=12, pady=(12, 8), anchor="w")
+
+        self.listbox = tk.Listbox(self, width=70, height=min(8, len(candidates)), exportselection=False)
+        for p in candidates:
+            mtime = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+            self.listbox.insert("end", f"{p.name}    (modified: {mtime})")
+        self.listbox.selection_set(0)
+        self.listbox.pack(padx=12, pady=(0, 8), fill="both", expand=True)
+        self.listbox.bind("<Double-Button-1>", lambda e: self._on_ok())
+
+        buttons = ttk.Frame(self)
+        buttons.pack(padx=12, pady=(0, 12), fill="x")
+        ttk.Button(buttons, text="Cancel", command=self._on_cancel).pack(side="right")
+        ttk.Button(buttons, text="OK", command=self._on_ok).pack(side="right", padx=(0, 8))
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.bind("<Escape>", lambda e: self._on_cancel())
+        self.bind("<Return>", lambda e: self._on_ok())
+
+        self.update_idletasks()
+        parent_x = parent.winfo_rootx()
+        parent_y = parent.winfo_rooty()
+        self.geometry(f"+{parent_x + 40}+{parent_y + 40}")
+
+    def _on_ok(self):
+        selection = self.listbox.curselection()
+        if selection:
+            self.result = self.candidates[selection[0]]
+        self.destroy()
+
+    def _on_cancel(self):
+        self.result = None
+        self.destroy()
 
 
 class App(tk.Tk):
@@ -269,6 +353,15 @@ class App(tk.Tk):
 
         folder = Path(folder_str)
         plan = scan_folder(folder)
+
+        if plan.needs_selection:
+            dialog = GspcrseChoiceDialog(self, plan.gspcrse_candidates)
+            self.wait_window(dialog)
+            if dialog.result is None:
+                self.log("Cancelled - no course file selected.")
+                return
+            plan = scan_folder(folder, chosen_gspcrse=dialog.result)
+
         self.plan = plan
 
         self.log(f"Folder: {folder}")
@@ -322,12 +415,41 @@ class App(tk.Tk):
             return
 
         self.rename_button.configure(state="disabled")
+
+        self.log("\n--- Backing up folder ---")
+        try:
+            backup_path = backup_folder(self.plan.folder, self.plan.old_name, self.log)
+        except OSError as exc:
+            self.log(f"ERROR creating backup: {exc}")
+            messagebox.showerror(
+                "Course Renamer",
+                f"Could not create a backup - aborting without making any changes.\n\n{exc}",
+            )
+            self.plan = None
+            return
+
         self.log("\n--- Applying changes ---")
         success = execute_plan(self.plan, self.log)
+
         if success:
             messagebox.showinfo("Course Renamer", "Rename complete.")
+            if messagebox.askyesno(
+                "Delete backup?",
+                f"Rename succeeded. Delete the backup now?\n\n{backup_path}",
+            ):
+                try:
+                    backup_path.unlink()
+                    self.log(f"Deleted backup: {backup_path}")
+                except OSError as exc:
+                    self.log(f"Could not delete backup: {exc}")
+            else:
+                self.log(f"Backup kept at: {backup_path}")
         else:
-            messagebox.showerror("Course Renamer", "Something went wrong - see the log for details.")
+            messagebox.showerror(
+                "Course Renamer",
+                f"Something went wrong - see the log for details.\n\n"
+                f"Your original files are backed up at:\n{backup_path}",
+            )
         self.plan = None
 
 
