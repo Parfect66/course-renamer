@@ -3,6 +3,18 @@
 A small desktop tool for renaming OPCD/GSPro course files after Arborist and
 Greenkeeper have already generated them under a placeholder name.
 
+## Download
+
+Grab **CourseRenamerLauncher.exe** from the
+[latest release](https://github.com/Parfect66/course-renamer/releases/latest)
+and run it. It checks this repo for the newest version, downloads
+`CourseRenamer.exe` next to itself if needed, and launches it - so you always
+get the current version without having to manually redownload. See
+[Launcher](#launcher) below for details.
+
+Prefer to just run the app directly without auto-update? Download
+`CourseRenamer.exe` from the same release instead.
+
 ## The problem
 
 After running Arborist and Greenkeeper in Unity, a course folder ends up with
@@ -81,3 +93,28 @@ Either way:
 If the folder doesn't have exactly one `.gspcrse` file or exactly one `.GKD`
 file, scanning will report an error and the **Rename** button stays
 disabled - fix the ambiguity by hand first.
+
+## Launcher
+
+`launcher.py` builds into `CourseRenamerLauncher.exe`, a small stub that:
+
+1. Asks the GitHub API for this repo's latest release.
+2. If `CourseRenamer.exe` isn't sitting next to the launcher yet, or the
+   release tag doesn't match `version.txt` next to the launcher, downloads
+   the current `CourseRenamer.exe` (to a temp file first, then swaps it in -
+   an interrupted download can't leave a broken exe behind).
+3. Launches `CourseRenamer.exe` and exits.
+
+If the update check fails (no internet, GitHub unreachable) but a
+`CourseRenamer.exe` is already installed next to the launcher, it just
+launches that one instead of blocking you.
+
+Build it the same way as the main app:
+
+```
+python -m PyInstaller --onefile --windowed --name "CourseRenamerLauncher" launcher.py
+```
+
+Distribute just `CourseRenamerLauncher.exe` on its own - it fetches
+`CourseRenamer.exe` itself on first run. Both end up living together in
+whatever folder the launcher was run from.
