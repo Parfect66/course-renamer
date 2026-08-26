@@ -259,7 +259,12 @@ class GspcrseChoiceDialog(ctk.CTkToplevel):
 
         self.candidates = candidates
         self.result: Path = None
-        self.selected_index = ctk.IntVar(value=0)
+
+        # Bind the close paths first, before anything below has a chance to
+        # fail and leave the window without a way to close it.
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.bind("<Escape>", lambda e: self._on_cancel())
+        self.bind("<Return>", lambda e: self._on_ok())
 
         ctk.CTkLabel(
             self,
@@ -267,22 +272,20 @@ class GspcrseChoiceDialog(ctk.CTkToplevel):
                  "the correct course name - it will be used as the target\n"
                  "name for all the other files.",
             justify="left",
-        ).pack(padx=18, pady=(18, 10), anchor="w")
+        ).pack(padx=18, pady=(18, 12), anchor="w")
 
-        list_frame = ctk.CTkScrollableFrame(
-            self, width=440, height=min(220, 56 * len(candidates)), fg_color="transparent"
-        )
-        list_frame.pack(padx=18, pady=(0, 12), fill="both", expand=True)
-
-        for i, p in enumerate(candidates):
+        self._option_to_path = {}
+        options = []
+        for p in candidates:
             mtime = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-            ctk.CTkRadioButton(
-                list_frame,
-                text=f"{p.name}\nmodified: {mtime}",
-                variable=self.selected_index,
-                value=i,
-                justify="left",
-            ).pack(anchor="w", pady=8, padx=6)
+            label = f"{p.name}   (modified: {mtime})"
+            options.append(label)
+            self._option_to_path[label] = p
+
+        self.selected_option = ctk.StringVar(value=options[0])
+        ctk.CTkOptionMenu(
+            self, values=options, variable=self.selected_option, width=440,
+        ).pack(padx=18, pady=(0, 18), fill="x")
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
         buttons.pack(padx=18, pady=(0, 18), fill="x")
@@ -292,10 +295,6 @@ class GspcrseChoiceDialog(ctk.CTkToplevel):
             fg_color="gray35", hover_color="gray25",
         ).pack(side="right", padx=(0, 8))
 
-        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
-        self.bind("<Escape>", lambda e: self._on_cancel())
-        self.bind("<Return>", lambda e: self._on_ok())
-
         self.update_idletasks()
         parent_x = parent.winfo_rootx()
         parent_y = parent.winfo_rooty()
@@ -303,7 +302,7 @@ class GspcrseChoiceDialog(ctk.CTkToplevel):
         self.after(50, self.grab_set)
 
     def _on_ok(self):
-        self.result = self.candidates[self.selected_index.get()]
+        self.result = self._option_to_path[self.selected_option.get()]
         self.destroy()
 
     def _on_cancel(self):
