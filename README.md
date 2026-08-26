@@ -48,6 +48,13 @@ Files that don't carry the course name in their filename - `arboristdata.dat`,
 
 ## Usage
 
+The UI is built with [customtkinter](https://github.com/TomSchimansky/CustomTkinter)
+(dark theme). Install it first:
+
+```
+python -m pip install customtkinter
+```
+
 **As an app (recommended):** build a standalone `CourseRenamer.exe` that
 needs no Python install to run:
 
@@ -59,8 +66,7 @@ python -m PyInstaller --onefile --windowed --name "CourseRenamer" course_renamer
 The `.exe` is written to `dist\CourseRenamer.exe`. Double-click it, or make
 a shortcut to it (e.g. on the Desktop) - no console window, just the GUI.
 
-**As a script:** requires only Python 3 (standard library, no extra
-packages):
+**As a script:**
 
 ```
 python course_renamer.py

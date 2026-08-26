@@ -4,16 +4,27 @@ Course Renamer - renames OPCD/GSPro course files to match the course's
 a different (placeholder) name.
 
 Usage: run this file with Python (double-click, or `python course_renamer.py`).
-No third-party dependencies - uses only the standard library (tkinter).
+Requires the `customtkinter` package: pip install customtkinter
 """
 
 import re
 import shutil
-import tkinter as tk
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
+
+import customtkinter as ctk
+
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("green")
+
+# Works around a customtkinter bug on Windows where its automatic dark-mode
+# titlebar routine can leave the window minimized right at startup (the
+# state-restore path it uses is broken - see ctk_tk.py's
+# _windows_set_titlebar_color). Disabling it just means the titlebar itself
+# stays the OS default color; the app body still renders fully dark-themed.
+ctk.CTk._deactivate_windows_window_header_manipulation = True
 
 SUFFIX_PATTERNS = [
     ".gspcrse.csv",
@@ -235,7 +246,7 @@ def execute_plan(plan: RenamePlan, log) -> bool:
         return False
 
 
-class GspcrseChoiceDialog(tk.Toplevel):
+class GspcrseChoiceDialog(ctk.CTkToplevel):
     """Modal dialog letting the user pick which .gspcrse file is correct
     when more than one is present (e.g. the original export plus a
     renamed copy)."""
@@ -245,31 +256,41 @@ class GspcrseChoiceDialog(tk.Toplevel):
         self.title("Select the correct course file")
         self.resizable(False, False)
         self.transient(parent)
-        self.grab_set()
 
         self.candidates = candidates
         self.result: Path = None
+        self.selected_index = ctk.IntVar(value=0)
 
-        ttk.Label(
+        ctk.CTkLabel(
             self,
             text="Multiple .gspcrse files were found. Select the one with\n"
                  "the correct course name - it will be used as the target\n"
                  "name for all the other files.",
             justify="left",
-        ).pack(padx=12, pady=(12, 8), anchor="w")
+        ).pack(padx=18, pady=(18, 10), anchor="w")
 
-        self.listbox = tk.Listbox(self, width=70, height=min(8, len(candidates)), exportselection=False)
-        for p in candidates:
+        list_frame = ctk.CTkScrollableFrame(
+            self, width=440, height=min(220, 56 * len(candidates)), fg_color="transparent"
+        )
+        list_frame.pack(padx=18, pady=(0, 12), fill="both", expand=True)
+
+        for i, p in enumerate(candidates):
             mtime = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
-            self.listbox.insert("end", f"{p.name}    (modified: {mtime})")
-        self.listbox.selection_set(0)
-        self.listbox.pack(padx=12, pady=(0, 8), fill="both", expand=True)
-        self.listbox.bind("<Double-Button-1>", lambda e: self._on_ok())
+            ctk.CTkRadioButton(
+                list_frame,
+                text=f"{p.name}\nmodified: {mtime}",
+                variable=self.selected_index,
+                value=i,
+                justify="left",
+            ).pack(anchor="w", pady=8, padx=6)
 
-        buttons = ttk.Frame(self)
-        buttons.pack(padx=12, pady=(0, 12), fill="x")
-        ttk.Button(buttons, text="Cancel", command=self._on_cancel).pack(side="right")
-        ttk.Button(buttons, text="OK", command=self._on_ok).pack(side="right", padx=(0, 8))
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(padx=18, pady=(0, 18), fill="x")
+        ctk.CTkButton(buttons, text="OK", width=90, command=self._on_ok).pack(side="right")
+        ctk.CTkButton(
+            buttons, text="Cancel", width=90, command=self._on_cancel,
+            fg_color="gray35", hover_color="gray25",
+        ).pack(side="right", padx=(0, 8))
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
         self.bind("<Escape>", lambda e: self._on_cancel())
@@ -278,12 +299,11 @@ class GspcrseChoiceDialog(tk.Toplevel):
         self.update_idletasks()
         parent_x = parent.winfo_rootx()
         parent_y = parent.winfo_rooty()
-        self.geometry(f"+{parent_x + 40}+{parent_y + 40}")
+        self.geometry(f"+{parent_x + 60}+{parent_y + 60}")
+        self.after(50, self.grab_set)
 
     def _on_ok(self):
-        selection = self.listbox.curselection()
-        if selection:
-            self.result = self.candidates[selection[0]]
+        self.result = self.candidates[self.selected_index.get()]
         self.destroy()
 
     def _on_cancel(self):
@@ -291,38 +311,58 @@ class GspcrseChoiceDialog(tk.Toplevel):
         self.destroy()
 
 
-class App(tk.Tk):
+class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Course Renamer")
-        self.geometry("720x560")
-        self.minsize(600, 480)
+        self.geometry("760x600")
+        self.minsize(640, 500)
 
-        self.folder_var = tk.StringVar()
+        self.folder_var = ctk.StringVar()
         self.plan: RenamePlan | None = None
 
         self._build_widgets()
 
     def _build_widgets(self):
-        pad = {"padx": 8, "pady": 6}
+        ctk.CTkLabel(
+            self, text="Course Renamer", font=ctk.CTkFont(size=22, weight="bold"),
+        ).pack(anchor="w", padx=20, pady=(20, 0))
+        ctk.CTkLabel(
+            self,
+            text="Sync a course's file and folder names to its .gspcrse name after Arborist/Greenkeeper export.",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray35", "gray70"),
+        ).pack(anchor="w", padx=20, pady=(2, 16))
 
-        top = ttk.Frame(self)
-        top.pack(fill="x", **pad)
+        folder_frame = ctk.CTkFrame(self, fg_color="transparent")
+        folder_frame.pack(fill="x", padx=20, pady=(0, 10))
 
-        ttk.Label(top, text="Course folder:").pack(side="left")
-        entry = ttk.Entry(top, textvariable=self.folder_var)
-        entry.pack(side="left", fill="x", expand=True, padx=(6, 6))
-        ttk.Button(top, text="Browse...", command=self.on_browse).pack(side="left")
+        ctk.CTkLabel(folder_frame, text="Course folder", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
 
-        actions = ttk.Frame(self)
-        actions.pack(fill="x", **pad)
-        ttk.Button(actions, text="Scan", command=self.on_scan).pack(side="left")
-        self.rename_button = ttk.Button(actions, text="Rename", command=self.on_rename, state="disabled")
-        self.rename_button.pack(side="left", padx=(8, 0))
+        picker_row = ctk.CTkFrame(folder_frame, fg_color="transparent")
+        picker_row.pack(fill="x", pady=(4, 0))
+        ctk.CTkEntry(
+            picker_row, textvariable=self.folder_var,
+            placeholder_text=r"C:\OPCD Courses\...\your_course_folder",
+        ).pack(side="left", fill="x", expand=True, padx=(0, 8), ipady=4)
+        ctk.CTkButton(picker_row, text="Browse...", width=100, command=self.on_browse).pack(side="left")
 
-        ttk.Label(self, text="Plan / log:").pack(anchor="w", padx=8)
-        self.log_text = tk.Text(self, wrap="word", height=24)
-        self.log_text.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        actions = ctk.CTkFrame(self, fg_color="transparent")
+        actions.pack(fill="x", padx=20, pady=(4, 14))
+        ctk.CTkButton(actions, text="Scan", width=120, command=self.on_scan).pack(side="left")
+        self.rename_button = ctk.CTkButton(
+            actions, text="Rename", width=120, command=self.on_rename, state="disabled",
+            fg_color="#c0622a", hover_color="#a5501f",
+        )
+        self.rename_button.pack(side="left", padx=(10, 0))
+
+        ctk.CTkLabel(self, text="Plan / log", font=ctk.CTkFont(size=12, weight="bold")).pack(
+            anchor="w", padx=20
+        )
+        self.log_text = ctk.CTkTextbox(
+            self, wrap="word", font=ctk.CTkFont(family="Consolas", size=12),
+        )
+        self.log_text.pack(fill="both", expand=True, padx=20, pady=(4, 20))
         self.log_text.configure(state="disabled")
 
     def log(self, message: str):
