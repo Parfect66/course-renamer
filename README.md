@@ -42,11 +42,25 @@ Files that don't carry the course name in their filename - `arboristdata.dat`,
 
 ## Usage
 
-Requires Python 3 (standard library only, no extra packages needed).
+**As an app (recommended):** build a standalone `CourseRenamer.exe` that
+needs no Python install to run:
+
+```
+python -m pip install pyinstaller
+python -m PyInstaller --onefile --windowed --name "CourseRenamer" course_renamer.py
+```
+
+The `.exe` is written to `dist\CourseRenamer.exe`. Double-click it, or make
+a shortcut to it (e.g. on the Desktop) - no console window, just the GUI.
+
+**As a script:** requires only Python 3 (standard library, no extra
+packages):
 
 ```
 python course_renamer.py
 ```
+
+Either way:
 
 1. Click **Browse...** and select the course folder.
 2. Click **Scan** to see the planned renames.
